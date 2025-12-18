@@ -1211,6 +1211,7 @@ void ObExprOperatorFactory::register_expr_operators()
     REG_OP(ObExprVectorCosineDistance);
     REG_OP(ObExprVectorIPDistance);
     REG_OP(ObExprVectorNegativeIPDistance);
+    REG_OP(ObExprVectorSigmodIPDistance);
     REG_OP(ObExprVectorL1Distance);
     REG_OP(ObExprVectorDims);
     REG_OP(ObExprVectorNorm);

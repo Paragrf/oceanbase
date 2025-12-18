@@ -249,6 +249,26 @@ private:
   DISALLOW_COPY_AND_ASSIGN(ObExprVectorNegativeIPDistance);
 };
 
+class ObExprVectorSigmodIPDistance : public ObExprVectorDistance
+{
+public:
+  explicit ObExprVectorSigmodIPDistance(common::ObIAllocator &alloc);
+  virtual ~ObExprVectorSigmodIPDistance() {};
+
+  virtual int calc_result_typeN(ObExprResType &type,
+                                ObExprResType *types_stack,
+                                int64_t param_num,
+                                common::ObExprTypeCtx &type_ctx) const override;
+
+  virtual int cg_expr(ObExprCGCtx &expr_cg_ctx,
+                      const ObRawExpr &raw_expr,
+                      ObExpr &rt_expr) const override;
+
+  static int calc_sigmod_inner_product(const ObExpr &expr, ObEvalCtx &ctx, ObDatum &res_datum);
+private:
+  DISALLOW_COPY_AND_ASSIGN(ObExprVectorSigmodIPDistance);
+};
+
 class ObExprVectorDims : public ObExprVector
 {
 public:

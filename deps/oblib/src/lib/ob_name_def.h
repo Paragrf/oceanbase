@@ -402,6 +402,7 @@
 #define N_VECTOR_L2_SQUARED "l2_squared"
 #define N_VECTOR_INNER_PRODUCT "inner_product"
 #define N_VECTOR_NEGATIVE_INNER_PRODUCT "negative_inner_product"
+#define N_SIGMOD_INNER_PRODUCT "sigmod_inner_product"
 #define N_VECTOR_COS_DISTANCE "cosine_distance"
 #define N_SEMANTIC_DISTANCE "semantic_distance"
 #define N_SEMANTIC_VECTOR_DISTANCE "semantic_vector_distance"

@@ -15,6 +15,8 @@
 #include "sql/engine/expr/ob_array_expr_utils.h"
 #include "sql/engine/expr/ob_expr_lob_utils.h"
 #include "share/vector_type/ob_vector_norm.h"
+#include "share/vector_type/ob_vector_sigmod_inner_product.h"
+#include "common/ob_target_specific.h"
 #include "lib/oblog/ob_log.h"
 #include "lib/time/ob_time_utility.h"  // ObTimeUtility
 #include "sql/engine/ob_exec_context.h"
@@ -550,6 +552,109 @@ int ObExprVectorNegativeIPDistance::calc_negative_inner_product(const ObExpr &ex
     double value = -1 * res_datum.get_double();
     res_datum.set_double(value);
   }
+  return ret;
+}
+
+ObExprVectorSigmodIPDistance::ObExprVectorSigmodIPDistance(ObIAllocator &alloc)
+    : ObExprVectorDistance(alloc, T_FUN_SYS_SIGMOD_INNER_PRODUCT, N_SIGMOD_INNER_PRODUCT, 3, NOT_ROW_DIMENSION) {}
+
+int ObExprVectorSigmodIPDistance::calc_result_typeN(
+    ObExprResType &type,
+    ObExprResType *types_stack,
+    int64_t param_num,
+    common::ObExprTypeCtx &type_ctx) const
+{
+  int ret = OB_SUCCESS;
+  if (OB_UNLIKELY(param_num != 3)) {
+    ObString func_name_(get_name());
+    ret = OB_ERR_PARAM_SIZE;
+    LOG_USER_ERROR(OB_ERR_PARAM_SIZE, func_name_.length(), func_name_.ptr());
+  } else if (OB_FAIL(calc_result_type2(type, types_stack[0], types_stack[1], type_ctx))) {
+    LOG_WARN("failed to calc result type", K(ret));
+  } else if (OB_FAIL(ObArrayExprUtils::calc_cast_type(type_, types_stack[2], type_ctx))) {
+    LOG_WARN("failed to calc cast type", K(ret), K(types_stack[2]));
+  } else {
+    type.set_type(ObDoubleType);
+    type.set_calc_type(ObDoubleType);
+  }
+  return ret;
+}
+
+int ObExprVectorSigmodIPDistance::cg_expr(ObExprCGCtx &expr_cg_ctx, const ObRawExpr &raw_expr,
+                                    ObExpr &rt_expr) const
+{
+    int ret = OB_SUCCESS;
+    rt_expr.eval_func_ = ObExprVectorSigmodIPDistance::calc_sigmod_inner_product;
+    return ret;
+}
+
+int ObExprVectorSigmodIPDistance::calc_sigmod_inner_product(const ObExpr &expr, ObEvalCtx &ctx, ObDatum &res_datum)
+{
+  // SIGMOD_INNER_PRODUCT (3 args: target_vector, query_vector, weight_vector)
+  // score = sum(sigmoid(a[i] * b[i]) * w[i])
+  int ret = OB_SUCCESS;
+  ObEvalCtx::TempAllocGuard tmp_alloc_g(ctx);
+  common::ObArenaAllocator &tmp_allocator = tmp_alloc_g.get_allocator();
+  double score = 0.0;
+
+  if (OB_ISNULL(expr.args_[0]) || OB_ISNULL(expr.args_[1]) || OB_ISNULL(expr.args_[2])) {
+    ret = OB_ERR_UNEXPECTED;
+    LOG_WARN("unexpected null args", K(ret));
+  } else {
+    const float *data_l = NULL;
+    const float *data_r = NULL;
+    const float *data_w = NULL;
+    int64_t size_l = 0;
+    int64_t size_r = 0;
+    int64_t size_w = 0;
+    bool vector_is_null = false;
+    ObCollectionArrayType *arr_type_l = nullptr;
+    ObCollectionArrayType *arr_type_r = nullptr;
+    ObCollectionArrayType *arr_type_w = nullptr;
+
+    if (OB_FAIL(ObExprVectorDistance::get_normal_vector_data(expr.args_[0], ctx, tmp_allocator,
+                                                              data_l, size_l, arr_type_l, vector_is_null))) {
+      LOG_WARN("failed to get first vector data", K(ret));
+    } else if (vector_is_null) {
+      res_datum.set_null();
+    } else if (OB_FAIL(ObExprVectorDistance::get_normal_vector_data(expr.args_[1], ctx, tmp_allocator,
+                                                                      data_r, size_r, arr_type_r, vector_is_null))) {
+      LOG_WARN("failed to get second vector data", K(ret));
+    } else if (vector_is_null) {
+      res_datum.set_null();
+    } else if (OB_FAIL(ObExprVectorDistance::get_normal_vector_data(expr.args_[2], ctx, tmp_allocator,
+                                                                   data_w, size_w, arr_type_w, vector_is_null))) {
+      LOG_WARN("failed to get weight vector data", K(ret));
+    } else if (vector_is_null) {
+      res_datum.set_null();
+    } else if (size_l != size_r || size_l != size_w) {
+      ret = OB_ERR_INVALID_VECTOR_DIM;
+      LOG_WARN("vector dimension mismatch", K(ret), K(size_l), K(size_r), K(size_w));
+    } else {
+#if OB_USE_MULTITARGET_CODE
+      if (common::is_arch_supported(common::ObTargetArch::AVX512)) {
+        score = common::specific::avx512::sigmod_inner_product_score(data_l, data_r, data_w, size_l);
+      } else if (common::is_arch_supported(common::ObTargetArch::AVX2)) {
+        score = common::specific::avx2::sigmod_inner_product_score(data_l, data_r, data_w, size_l);
+      } else {
+        score = common::specific::normal::sigmod_inner_product_score(data_l, data_r, data_w, size_l);
+      }
+#else
+      score = common::specific::normal::sigmod_inner_product_score(data_l, data_r, data_w, size_l);
+#endif
+
+      if (OB_SUCC(ret)) {
+        if (::isinf(score) || ::isnan(score)) {
+          ret = OB_NUMERIC_OVERFLOW;
+          LOG_WARN("score value is invalid", K(score));
+          FORWARD_USER_ERROR(OB_NUMERIC_OVERFLOW, "score value is overflow or NaN");
+        } else {
+          res_datum.set_double(score);
+        }
+      }
+    }
+  }
+
   return ret;
 }
 
